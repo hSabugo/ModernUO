@@ -20,6 +20,8 @@ namespace Server.Spells
     {
         public static void Configure()
         {
+            Spell.Configure();
+
             // First circle
             Register(00, typeof(ClumsySpell));
             Register(01, typeof(CreateFoodSpell));

@@ -27,6 +27,21 @@ namespace Server.Spells
         private AnimTimer _animTimer;
         private CastTimer _castTimer;
 
+        private static bool _sphereCasting;
+
+        private bool _sphereReady;
+        private object _sphereTarget;
+
+        public static bool SphereCasting => _sphereCasting;
+
+        public static void Configure()
+        {
+            _sphereCasting = ServerConfiguration.GetOrUpdateSetting(
+                "spells.useSphereCasting",
+                false
+            );
+        }
+
         public Spell(Mobile caster, Item scroll, SpellInfo info)
         {
             Caster = caster;
@@ -64,7 +79,7 @@ namespace Server.Spells
 
         public virtual bool BlockedByHorrificBeast => true;
         public virtual bool BlockedByAnimalForm => true;
-        public virtual bool BlocksMovement => IsCasting;
+        public virtual bool BlocksMovement => _sphereCasting ? false : IsCasting;
 
         public virtual bool CheckNextSpellTime => Scroll is not BaseWand;
 
@@ -147,6 +162,32 @@ namespace Server.Spells
             }
 
             Caster.Delta(MobileDelta.Flags); // Remove paralyze
+        }
+
+        internal void SphereSelectTarget(object target)
+        {
+            _sphereTarget = target;
+            TrySphereExecute();
+        }
+
+        internal void SphereCancel()
+        {
+            _sphereTarget = null;
+            Disturb(DisturbType.NewCast);
+        }
+
+        private void TrySphereExecute()
+        {
+            if (!_sphereReady || _sphereTarget == null)
+            {
+                return;
+            }
+
+            dynamic t = _sphereTarget;
+            _sphereTarget = null;
+
+            ((dynamic)this).Target(t);
+            FinishSequence();
         }
 
         public void StartDelayedDamageContext(Mobile m, Timer t)
@@ -560,12 +601,19 @@ namespace Server.Spells
                             WeaponAbility.ClearCurrentAbility(Caster);
                         }
 
-                        Caster.Delta(MobileDelta.Flags); // Start paralyze
+                        if (!_sphereCasting)
+                        {
+                            Caster.Delta(MobileDelta.Flags); // Start paralyze
+                        }
 
                         _castTimer = new CastTimer(this, castDelay);
-                        // m_CastTimer.Start();
 
                         OnBeginCast();
+
+                        if (_sphereCasting)
+                        {
+                            OnCast();
+                        }
 
                         if (castDelay > TimeSpan.Zero)
                         {
@@ -574,6 +622,11 @@ namespace Server.Spells
                         else
                         {
                             _castTimer.Tick();
+                        }
+
+                        if (!_sphereCasting)
+                        {
+                            // Paralyze started above
                         }
 
                         return true;
@@ -951,17 +1004,25 @@ namespace Server.Spells
                     caster.OnSpellCast(m_Spell);
                     caster.Region?.OnSpellCast(caster, m_Spell);
                     caster.NextSpellTime =
-                        Core.TickCount + (int)m_Spell.GetCastRecovery().TotalMilliseconds; // Spell.NextSpellDelay;
+                        Core.TickCount + (int)m_Spell.GetCastRecovery().TotalMilliseconds;
 
-                    caster.Delta(MobileDelta.Flags); // Update paralyze
-
-                    var originalTarget = caster.Target;
-
-                    m_Spell.OnCast();
-
-                    if (caster.Player && caster.Target != originalTarget)
+                    if (!_sphereCasting)
                     {
-                        caster.Target?.BeginTimeout(caster, 30000); // 30 seconds
+                        caster.Delta(MobileDelta.Flags); // Update paralyze
+
+                        var originalTarget = caster.Target;
+
+                        m_Spell.OnCast();
+
+                        if (caster.Player && caster.Target != originalTarget)
+                        {
+                            caster.Target?.BeginTimeout(caster, 30000);
+                        }
+                    }
+                    else
+                    {
+                        m_Spell._sphereReady = true;
+                        m_Spell.TrySphereExecute();
                     }
 
                     m_Spell._castTimer = null;

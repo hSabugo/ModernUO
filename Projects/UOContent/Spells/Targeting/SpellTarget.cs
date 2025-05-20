@@ -46,7 +46,17 @@ public class SpellTarget<T> : Target, ISpellTarget<T> where T : class, IPoint3D
         from.SendLocalizedMessage(500237); // Target can not be seen.
     }
 
-    protected override void OnTarget(Mobile from, object o) => _spell.Target(o as T);
+    protected override void OnTarget(Mobile from, object o)
+    {
+        if (Spell.SphereCasting && _spell is Spell spell)
+        {
+            spell.SphereSelectTarget(o as T);
+        }
+        else
+        {
+            _spell.Target(o as T);
+        }
+    }
 
     protected override void OnTargetOutOfLOS(Mobile from, object o)
     {
@@ -60,5 +70,23 @@ public class SpellTarget<T> : Target, ISpellTarget<T> where T : class, IPoint3D
         from.Target.BeginTimeout(from, TimeoutTime - Core.TickCount);
     }
 
-    protected override void OnTargetFinish(Mobile from) => _spell?.FinishSequence();
+    protected override void OnTargetFinish(Mobile from)
+    {
+        if (!Spell.SphereCasting)
+        {
+            _spell?.FinishSequence();
+        }
+    }
+
+    protected override void OnTargetCancel(Mobile from, TargetCancelType cancelType)
+    {
+        if (Spell.SphereCasting && _spell is Spell spell)
+        {
+            spell.SphereCancel();
+        }
+        else
+        {
+            _spell?.FinishSequence();
+        }
+    }
 }
